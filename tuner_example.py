@@ -9,8 +9,8 @@ from tuning import Tuner, config_name
 def trial(config):
     logger = Logger()
     for t in range(10):
-        time.sleep(1)
-        # fake data for example
+        time.sleep(0.5)
+        # generate random results
         logger.log(loss=config["lr"] * (2 - t / 10) * np.random.normal(1, 0.2))
         logger.generate_plots("plotgen/" + config_name(config))
 
@@ -19,7 +19,12 @@ def trial(config):
 
 # defining experiment config
 tuner = Tuner(
-    {"dataset": "task", "weight_decay": "science", "lr": "nuisance", "trial_idx": "id"},
+    {
+        "dataset": "task",
+        "weight_decay": "science",
+        "lr": "nuisance",
+        "trial_idx": "id",
+    },
     trial_fn=trial,
     metric="loss",
     mode="min",
@@ -42,6 +47,5 @@ for dataset in ("cifar", "imagenet"):
 # running trials with ray-core
 tuner.run()
 
-# example of saving/loading tuner
-tuner.save_results("tuner.pickle")
-tuner_2 = Tuner.load_results("tuner.pickle")
+# example of loading checkpoint
+tuner_2 = Tuner.load_checkpoint(trial_fn=trial, filename="tuner.ckpt")

@@ -22,12 +22,12 @@ def iqm(scores: List[float]):
     uppercut = n_obs - lowercut
 
     scores = np.partition(scores, (lowercut, uppercut - 1))
-    return np.mean(scores[lowercut : uppercut])
+    return np.mean(scores[lowercut:uppercut])
 
 
 # https://arxiv.org/abs/2108.13264 IQM with bootstrapped confidence intervals, with
 # support for NaN results (e.g. incomplete trials)
-def bootstrapped_iqm(runs: np.ndarray, iters=1000, alpha=0.9, seed=42):
+def bootstrapped_iqm(runs: np.ndarray, iters=1000, alpha=0.95, seed=42):
     assert 0 < alpha < 1
 
     rng = np.random.default_rng(seed)
@@ -72,10 +72,15 @@ class TrialConfig:
     def __init__(self, spec, cfg_dict):
         vals_by_type = defaultdict(list)
         for key in cfg_dict:
-            assert key in spec
+            assert key in spec, f"Unexpected key: {key}"
         for key in spec:
             assert key in cfg_dict, f"{key} not found in config={cfg_dict}"
-            assert spec[key] in ("task", "science", "nuisance", "id")
+            assert spec[key] in (
+                "task",
+                "science",
+                "nuisance",
+                "id",
+            ), f"Unexpected parameter type: {spec[key]}"
             vals_by_type[spec[key]].append(cfg_dict[key])
 
         self.cfg_dict = cfg_dict
@@ -86,7 +91,9 @@ class TrialConfig:
         self.id_key = tuple(vals_by_type["id"])
 
     def __hash__(self):
-        return hash((self.task_key, self.science_key, self.nuisance_key, self.id_key))
+        return hash(
+            (self.task_key, self.science_key, self.nuisance_key, self.id_key)
+        )
 
     def __eq__(self, other):
         if not isinstance(other, TrialConfig):
@@ -101,7 +108,7 @@ class TrialConfig:
 
 
 class ResultReporter:
-    def __init__(self, spec, metric, mode):
+    def __init__(self, spec, metric, mode, plot_dir, ckpt_filename):
         self.spec = spec
         self.comparison_metric = metric
         self.mode = mode
@@ -119,23 +126,38 @@ class ResultReporter:
         )
 
         self.cleared_plots = False
+        self.plot_dir = plot_dir
+        self.ckpt_filename = ckpt_filename
 
-    def add_result(self, config: TrialConfig, result: Logger):
+    def add_result(
+        self, config: TrialConfig, result: Logger, plot=True, checkpoint=True
+    ):
         self.results[config] = result
-        self.plot_results()
+        if plot:
+            self.plot_results()
+        if checkpoint:
+            self.checkpoint()
 
-    def set_done(self, config: TrialConfig):
+    def is_done(self, config: TrialConfig):
+        return config in self.finished
+
+    def set_done(self, config: TrialConfig, plot=True, checkpoint=True):
         self.finished.add(config)
-        self.plot_results()
+        if plot:
+            self.plot_results()
+        if checkpoint:
+            self.checkpoint()
 
-    def plot_results(self, directory_name="tuner_plots"):
+    def plot_results(self, plot_dir=None):
         matplotlib.use("Agg")
 
         metrics = list(self.results.values())[0].data.keys()
-        if not self.cleared_plots and os.path.exists(directory_name):
+        if plot_dir is None:
+            plot_dir = self.plot_dir
+        if not self.cleared_plots and os.path.exists(plot_dir):
             self.cleared_plots = True
-            shutil.rmtree(directory_name)
-        os.makedirs(directory_name, exist_ok=True)
+            shutil.rmtree(plot_dir)
+        os.makedirs(plot_dir, exist_ok=True)
 
         for metric in metrics:
             for task in set(config.task_key for config in self.results.keys()):
@@ -147,10 +169,13 @@ class ResultReporter:
                     f"{k}={v:.2g}" if isinstance(v, float) else f"{k}={v}"
                     for k, v in zip(self.task_metrics, task)
                 )
+                filename = str(metric)
                 if task_title:
                     title = f"{task_title} :: {metric}"
+                    filename = os.path.join(task_title, filename)
                 else:
                     title = metric
+                filename = os.path.join(plot_dir, filename)
 
                 for config in self.results.keys():
                     if config.task_key == task and config not in self.finished:
@@ -169,15 +194,21 @@ class ResultReporter:
                     nuisance_scores = defaultdict(list)
 
                     for config, result in self.results.items():
-                        if config.task_key != task or config.science_key != science_key:
+                        if (
+                            config.task_key != task
+                            or config.science_key != science_key
+                        ):
                             continue
                         nuisance_scores[config.nuisance_key].append(
                             result.data[self.comparison_metric][-1]
                         )
 
-                    nuisance_scores = {k: iqm(v) for k, v in nuisance_scores.items()}
+                    nuisance_scores = {
+                        k: iqm(v) for k, v in nuisance_scores.items()
+                    }
                     best_nuisance = (max if self.mode == "max" else min)(
-                        nuisance_scores.keys(), key=lambda k: nuisance_scores[k]
+                        nuisance_scores.keys(),
+                        key=lambda k: nuisance_scores[k],
                     )
 
                     best_nuisance_results = []
@@ -219,42 +250,55 @@ class ResultReporter:
                         label=label,
                     )
                     ax.fill_between(
-                        np.arange(len(mid)), lo, hi, color=line.get_color(), alpha=0.3
+                        np.arange(len(mid)),
+                        lo,
+                        hi,
+                        color=line.get_color(),
+                        alpha=0.3,
                     )
 
                     if len(mid) <= 100:  # add thick circles for clarity
-                        ax.scatter(np.arange(len(mid)), mid, color=line.get_color())
+                        ax.scatter(
+                            np.arange(len(mid)), mid, color=line.get_color()
+                        )
 
                 if self.science_metrics or self.nuisance_metrics:
                     fig.legend(bbox_to_anchor=(1, 1), loc="upper left")
 
-                path = os.path.join(
-                    directory_name, *[s.replace(" ", "_") for s in title.split(" :: ")]
-                )
-                dirname, filename = os.path.split(path)
+                dirname, _ = os.path.split(filename)
                 os.makedirs(dirname, exist_ok=True)
-                fig.savefig(path, bbox_inches="tight")
-                if not path.endswith("(in_progress)") and os.path.exists(
-                    path + "_(in_progress).png"
-                ):
-                    os.remove(path + "_(in_progress).png")
+                fig.savefig(filename, bbox_inches="tight")
                 plt.close(fig)
 
-    def serializable(self):
-        return {
-            "spec": self.spec,
-            "metric": self.comparison_metric,
-            "mode": self.mode,
-            "results": self.results,
-            "finished": self.finished,
-        }
+    def checkpoint(self, filename=None):
+        with open(
+            self.ckpt_filename if filename is None else filename, "wb"
+        ) as f:
+            pickle.dump(
+                {
+                    "spec": self.spec,
+                    "metric": self.comparison_metric,
+                    "mode": self.mode,
+                    "results": self.results,
+                    "finished": self.finished,
+                },
+                f,
+            )
 
 
 remote_reporter = ray.remote(ResultReporter)
 
 
 class Tuner:
-    def __init__(self, spec, trial_fn: Callable, metric: str, mode="max"):
+    def __init__(
+        self,
+        spec,
+        trial_fn: Callable,
+        metric: str,
+        mode="max",
+        plot_dir="tuner_plots",
+        ckpt_filename="tuner.ckpt",
+    ):
         for k, v in spec.items():
             assert v in ("task", "science", "nuisance", "id")
         assert inspect.isgeneratorfunction(trial_fn)
@@ -265,37 +309,46 @@ class Tuner:
         self.mode = mode
 
         def run_fn(config, reporter):
+            if ray.get(reporter.is_done.remote(config)):
+                return
+
             try:
-                handles = []
                 for result in trial_fn(config.cfg_dict):
-                    handles.append(reporter.add_result.remote(config, result))
-                ray.get(handles)
+                    ray.get(reporter.add_result.remote(config, result))
             except Exception as e:
-                print(f"Trial config={config_name(config)} failed with exception {e}")
+                print(
+                    f"Trial config={config_name(config.cfg_dict)} failed with "
+                    f"exception {e}"
+                )
             finally:
                 ray.get(reporter.set_done.remote(config))
 
-        self.reporter = remote_reporter.remote(self.spec, self.metric, self.mode)
+        self.reporter = remote_reporter.remote(
+            self.spec, self.metric, self.mode, plot_dir, ckpt_filename
+        )
         self.run_fn = ray.remote(run_fn)
         self.remote_args = []
 
     def add(self, cfg_dict):
-        self.remote_args.append((TrialConfig(self.spec, cfg_dict), self.reporter))
+        self.remote_args.append(
+            (TrialConfig(self.spec, cfg_dict), self.reporter)
+        )
 
     def run(self):
         ray.get([self.run_fn.remote(*args) for args in self.remote_args])
 
-    def save_results(self, filename):
-        with open(filename, "wb") as f:
-            pickle.dump(ray.get(self.reporter.serializable.remote()), f)
-
     @staticmethod
-    def load_results(filename) -> ResultReporter:
+    def load_checkpoint(trial_fn, filename, **kwargs):
         with open(filename, "rb") as f:
-            data = pickle.load(f)
-            ret = ResultReporter(
-                spec=data["spec"], metric=data["metric"], mode=data["mode"]
-            )
-            ret.results = data["results"]
-            ret.finished = data["finished"]
-            return ret
+            checkpoint = pickle.load(f)
+
+        tuner = Tuner(
+            checkpoint["spec"],
+            trial_fn,
+            checkpoint["metric"],
+            checkpoint["mode"],
+            **kwargs,
+        )
+        tuner.reporter.results = checkpoint["results"]
+        tuner.reporter.finished = checkpoint["finished"]
+        return tuner

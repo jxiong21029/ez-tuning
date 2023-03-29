@@ -1,0 +1,12 @@
+name: EzTuning
+channels:
+  - default
+  - conda-forge
+dependencies:
+  - numpy
+  - matplotlib
+  - seaborn
+  - python==3.10
+  - pip
+  - pip:
+      - ray

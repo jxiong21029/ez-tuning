@@ -99,7 +99,11 @@ class Logger:
             if name in self.std_data:
                 stds = np.array(self.std_data[name])
                 ax.fill_between(
-                    x, values - stds, values + stds, color=line.get_color(), alpha=0.3
+                    x,
+                    values - stds,
+                    values + stds,
+                    color=line.get_color(),
+                    alpha=0.3,
                 )
 
             if len(values) <= 100:  # add thick circles for clarity
