@@ -18,7 +18,7 @@ identical parameters. Trials with different IDs but otherwise identical paramete
 their results aggregated together before results are reported.
 
 The resulting plots are stored in a local directory. One plot for each metric displays
-the 90% boostrapped confidence intervals of the IQM of that metric over time (following
+the 95% boostrapped confidence intervals of the IQM of that metric over time (following
 the guidelines in <https://arxiv.org/abs/2108.13264>). One line
 is plotted per unique configuration of science parameters, and only results from the
 best nuisance configuration corresponding to each science configuration are used.
