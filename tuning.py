@@ -33,7 +33,7 @@ def bootstrapped_iqm(runs: np.ndarray, iters=1000, alpha=0.95, seed=42):
     rng = np.random.default_rng(seed)
 
     idx = rng.integers(runs.shape[0], size=(iters, runs.shape[0]))
-    bootstraps: np.ndarray = runs[idx]  # (iters, trials, time)
+    bootstraps: np.ndarray = runs[idx].astype(float)  # (iters, trials, time)
 
     lowercut = runs.shape[0] // 4
     uppercut = runs.shape[0] - lowercut
