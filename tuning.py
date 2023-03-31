@@ -1,6 +1,6 @@
 import inspect
+import json
 import os
-import pickle
 import shutil
 import warnings
 from collections import defaultdict
@@ -151,6 +151,9 @@ class ResultReporter:
     def plot_results(self, plot_dir=None):
         matplotlib.use("Agg")
 
+        if not self.results:
+            return
+
         metrics = list(self.results.values())[0].data.keys()
         if plot_dir is None:
             plot_dir = self.plot_dir
@@ -271,19 +274,52 @@ class ResultReporter:
                 plt.close(fig)
 
     def checkpoint(self, filename=None):
+        configs = list(self.results.keys())
         with open(
-            self.ckpt_filename if filename is None else filename, "wb"
+            self.ckpt_filename if filename is None else filename, "w"
         ) as f:
-            pickle.dump(
+            json.dump(
                 {
                     "spec": self.spec,
                     "metric": self.comparison_metric,
                     "mode": self.mode,
-                    "results": self.results,
-                    "finished": self.finished,
+                    "configs": [cfg.cfg_dict for cfg in configs],
+                    "results": [self.results[cfg].data for cfg in configs],
+                    "results_std": [
+                        self.results[cfg].std_data for cfg in configs
+                    ],
+                    "finished": [cfg in self.finished for cfg in configs],
                 },
                 f,
             )
+
+    @staticmethod
+    def load_checkpoint(
+        filename, plot_dir="tuner_plots", ckpt_filename="tuner.ckpt"
+    ):
+        with open(filename, "r") as f:
+            checkpoint = json.load(f)
+
+        reporter = ResultReporter(
+            checkpoint["spec"],
+            checkpoint["metric"],
+            checkpoint["mode"],
+            plot_dir,
+            ckpt_filename,
+        )
+        reporter.results = {}
+        for i, cfg_dict in enumerate(checkpoint["configs"]):
+            logger = Logger()
+            logger.data = checkpoint["results"][i]
+            logger.std_data = checkpoint["results_std"][i]
+
+            config = TrialConfig(checkpoint["spec"], cfg_dict)
+            reporter.results[config] = logger
+
+            if checkpoint["finished"][i]:
+                reporter.finished.add(config)
+
+        return reporter
 
 
 remote_reporter = ray.remote(ResultReporter)
@@ -298,6 +334,8 @@ class Tuner:
         mode="max",
         plot_dir="tuner_plots",
         ckpt_filename="tuner.ckpt",
+        trial_cpus=1,
+        trial_gpus=0,
     ):
         for k, v in spec.items():
             assert v in ("task", "science", "nuisance", "id")
@@ -326,7 +364,9 @@ class Tuner:
         self.reporter = remote_reporter.remote(
             self.spec, self.metric, self.mode, plot_dir, ckpt_filename
         )
-        self.run_fn = ray.remote(run_fn)
+        self.run_fn = ray.remote(num_cpus=trial_cpus, num_gpus=trial_gpus)(
+            run_fn
+        )
         self.remote_args = []
 
     def add(self, cfg_dict):
@@ -339,16 +379,22 @@ class Tuner:
 
     @staticmethod
     def load_checkpoint(trial_fn, filename, **kwargs):
-        with open(filename, "rb") as f:
-            checkpoint = pickle.load(f)
+        reporter = ResultReporter.load_checkpoint(filename)
 
         tuner = Tuner(
-            checkpoint["spec"],
+            reporter.spec,
             trial_fn,
-            checkpoint["metric"],
-            checkpoint["mode"],
+            reporter.comparison_metric,
+            reporter.mode,
             **kwargs,
         )
-        tuner.reporter.results = checkpoint["results"]
-        tuner.reporter.finished = checkpoint["finished"]
+        for config, result in reporter.results.items():
+            tuner.reporter.add_result.remote(
+                config, result, plot=False, checkpoint=False
+            )
+        for config in reporter.finished:
+            tuner.reporter.set_done.remote(
+                config, plot=False, checkpoint=False
+            )
+
         return tuner
