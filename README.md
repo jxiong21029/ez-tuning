@@ -27,4 +27,4 @@ Results for each unique task configuration are reported in a separate directory.
 Trials are run in parallel using
 [ray-core](https://docs.ray.io/en/latest/ray-core/walkthrough.html).
 Trials should yield Logger
-objects, generator-style. See `tuner_example.py` for example usage.
+objects, generator-style. See `example/tuner_example.py` for example usage.
