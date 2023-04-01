@@ -2,6 +2,7 @@ import inspect
 import json
 import os
 import shutil
+import time
 import warnings
 from collections import defaultdict
 from typing import Callable, Dict, List
@@ -10,6 +11,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import ray
+import seaborn as sns
 
 from logger import Logger
 
@@ -129,27 +131,41 @@ class ResultReporter:
         self.plot_dir = plot_dir
         self.ckpt_filename = ckpt_filename
 
+        self.last_ckpt_time = None
+
     def add_result(
         self, config: TrialConfig, result: Logger, plot=True, checkpoint=True
     ):
         self.results[config] = result
-        if plot:
-            self.plot_results()
-        if checkpoint:
-            self.checkpoint()
+
+        if (
+            self.last_ckpt_time is None
+            or time.time() - self.last_ckpt_time > 30
+        ):
+            if plot:
+                self.plot_results()
+            if checkpoint:
+                self.checkpoint()
+            self.last_ckpt_time = time.time()
 
     def is_done(self, config: TrialConfig):
         return config in self.finished
 
     def set_done(self, config: TrialConfig, plot=True, checkpoint=True):
         self.finished.add(config)
-        if plot:
-            self.plot_results()
-        if checkpoint:
-            self.checkpoint()
+        if (
+            self.last_ckpt_time is None
+            or time.time() - self.last_ckpt_time > 30
+        ):
+            if plot:
+                self.plot_results()
+            if checkpoint:
+                self.checkpoint()
+            self.last_ckpt_time = time.time()
 
     def plot_results(self, plot_dir=None):
         matplotlib.use("Agg")
+        sns.set_theme()
 
         if not self.results:
             return
@@ -374,8 +390,17 @@ class Tuner:
             (TrialConfig(self.spec, cfg_dict), self.reporter)
         )
 
-    def run(self):
-        ray.get([self.run_fn.remote(*args) for args in self.remote_args])
+    def run(self, max_tasks=16):
+        result_refs = []
+        for args in self.remote_args:
+            if len(result_refs) > max_tasks:
+                ready_refs, result_refs = ray.wait(result_refs, num_returns=1)
+                ray.get(ready_refs)
+            result_refs.append(self.run_fn.remote(*args))
+        ray.get(result_refs)
+
+        self.reporter.plot_results.remote()
+        self.reporter.checkpoint.remote()
 
     @staticmethod
     def load_checkpoint(trial_fn, filename, **kwargs):
