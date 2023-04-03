@@ -75,7 +75,7 @@ class TrialConfig:
         vals_by_type = defaultdict(list)
         for key in cfg_dict:
             assert key in spec, f"Unexpected key: {key}"
-        for key in spec:
+        for key in sorted(spec.keys()):
             assert key in cfg_dict, f"{key} not found in config={cfg_dict}"
             assert spec[key] in (
                 "task",
@@ -399,8 +399,8 @@ class Tuner:
             result_refs.append(self.run_fn.remote(*args))
         ray.get(result_refs)
 
-        self.reporter.plot_results.remote()
-        self.reporter.checkpoint.remote()
+        ray.get(self.reporter.plot_results.remote())
+        ray.get(self.reporter.checkpoint.remote())
 
     @staticmethod
     def load_checkpoint(trial_fn, filename, **kwargs):
