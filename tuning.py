@@ -352,6 +352,7 @@ class Tuner:
         ckpt_filename="tuner.ckpt",
         trial_cpus=1,
         trial_gpus=0,
+        throw_on_exception=False,
     ):
         for k, v in spec.items():
             assert v in ("task", "science", "nuisance", "id")
@@ -370,6 +371,8 @@ class Tuner:
                 for result in trial_fn(config.cfg_dict):
                     ray.get(reporter.add_result.remote(config, result))
             except Exception as e:
+                if throw_on_exception:
+                    raise e
                 print(
                     f"Trial config={config_name(config.cfg_dict)} failed with "
                     f"exception {e}"
@@ -414,12 +417,16 @@ class Tuner:
             **kwargs,
         )
         for config, result in reporter.results.items():
-            tuner.reporter.add_result.remote(
-                config, result, plot=False, checkpoint=False
+            ray.get(
+                tuner.reporter.add_result.remote(
+                    config, result, plot=False, checkpoint=False
+                )
             )
         for config in reporter.finished:
-            tuner.reporter.set_done.remote(
-                config, plot=False, checkpoint=False
+            ray.get(
+                tuner.reporter.set_done.remote(
+                    config, plot=False, checkpoint=False
+                )
             )
 
         return tuner
