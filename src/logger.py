@@ -42,14 +42,15 @@ class RunningStats:
         return self.quantile_estimator.get_quantile_value(q)
 
 
+DEFAULT_QUANTILES = [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
+
+
 class Logger:
     def __init__(self, quantiles=None):
         self.buffer = defaultdict(RunningStats)
 
         self.data = defaultdict(list)
-        self.quantiles = (
-            (0.025, 0.25, 0.5, 0.75, 0.975) if quantiles is None else quantiles
-        )
+        self.quantiles = DEFAULT_QUANTILES if quantiles is None else quantiles
 
     # log metrics reported once per epoch
     def log(self, metrics=None, **kwargs):

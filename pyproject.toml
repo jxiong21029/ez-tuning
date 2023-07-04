@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ez-tuning"
+version = "0.1.0"
+readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "black",
+    "bokeh",
+    "ddsketch",
+    "isort",
+    "numpy",
+]
+requires-python = ">=3.8"
+
+[project.scripts]
+plotgen = "main:main"
