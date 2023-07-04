@@ -3,20 +3,13 @@ import numpy as np
 from logger import Logger
 
 logger = Logger()
-logger.extend(
-    {
-        "loss/train": np.random.randn(50) / 1e5,
-        "loss/eval": np.random.randn(10),
-    },
-)
-logger.step()
-
-logger.extend(
-    {
-        "loss/train": (np.random.randn(50) + 0.5) / 1e5,
-        "loss/eval": np.random.randn(10),
-    },
-)
-logger.step()
+for i in range(100):
+    logger.extend(
+        {
+            "loss/train": (1 + np.random.randn(50)) / 1e5 * np.exp(-i / 100),
+            "loss/eval": (1 + np.random.randn(10)) / 1e4,
+        },
+    )
+    logger.step()
 
 logger.save("logger.npz")

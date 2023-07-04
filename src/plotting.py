@@ -2,15 +2,8 @@ import sys
 
 import numpy as np
 from bokeh.io import curdoc
-from bokeh.layouts import column
-from bokeh.models import (
-    ColumnDataSource,
-    Legend,
-    LegendItem,
-    MultiLine,
-    Select,
-    Span,
-)
+from bokeh.layouts import Spacer, column, row
+from bokeh.models import Band, Button, ColumnDataSource, Legend, Select, Span
 from bokeh.palettes import Category10_10
 from bokeh.plotting import figure
 
@@ -21,7 +14,7 @@ def get_data(
     logger: Logger, query: str, center_style: str, ci_style: str
 ) -> dict[str, list[np.ndarray]]:
     assert center_style in ("Mean", "Median")
-    assert ci_style in ("STD", "25% / 75%", "5% / 95%", "2.5% / 97.5%")
+    assert ci_style in ("None", "STD", "25% / 75%", "5% / 95%", "2.5% / 97.5%")
 
     selected = [
         k.replace(".data", "")
@@ -78,6 +71,7 @@ def get_data(
         "lower": lower,
         "upper": upper,
         "color": np.asarray(palette)[np.arange(len(xs)) % len(palette)],
+        "name": selected,
     }
 
 
@@ -108,41 +102,16 @@ def main():
     ci_style_select = Select(
         title="Lower/Upper Bound Style",
         value="STD",
-        options=["STD", "25% / 75%", "5% / 95%", "2.5% / 97.5%"],
+        options=["None", "STD", "25% / 75%", "5% / 95%", "2.5% / 97.5%"],
     )
-
-    source = ColumnDataSource(
-        get_data(
-            logger,
-            metrics[0],
-            center_style_select.value,
-            ci_style_select.value,
-        )
-    )
+    refresh_button = Button(label="Refresh", button_type="primary", height=32)
 
     plot = figure(
         tools="crosshair,pan,reset,save,wheel_zoom,box_zoom",
         x_range=(0, 1),
         y_range=(0, 1),
     )
-    # hover = plot.select({"type": HoverTool})
-    # hover.tooltips = [("epoch", "@x"), ("value", "@y")]
 
-    # plot.line(x="x", y="y", line_width=3, source=source)
-    center_glyph = MultiLine(xs="x", ys="y", line_width=4, line_color="color")
-    lower_glyph = MultiLine(
-        xs="x", ys="lower", line_width=2, line_color="color"
-    )
-    upper_glyph = MultiLine(
-        xs="x", ys="upper", line_width=2, line_color="color"
-    )
-
-    plot.add_glyph(source, center_glyph)
-    plot.add_glyph(source, lower_glyph)
-    plot.add_glyph(source, upper_glyph)
-    # hover.renderers = [center_renderer]
-
-    plot.circle(x="x", y="y", size=6, source=source)
     plot.add_layout(
         Span(location=0, dimension="height", line_color="black", line_width=2)
     )
@@ -152,7 +121,7 @@ def main():
 
     def update(_attr, _old, _new):
         data = get_data(
-            logger,
+            Logger.load(filename),
             metric_input.value,
             center_style_select.value,
             ci_style_select.value,
@@ -169,15 +138,68 @@ def main():
         plot.y_range.start = ymin - (ymax - ymin) * 0.1
         plot.y_range.end = ymax + (ymax - ymin) * 0.1
 
-        source.data = data
+        plot.renderers = []
+        plot.center = [
+            item
+            for item in plot.center
+            if not isinstance(item, Band) and not isinstance(item, Legend)
+        ]
+        # hovertool: HoverTool = plot.select({"type": HoverTool})
+        # hovertool.mode = "vline"
+        # hovertool.tooltips = [("value", "@y{custom}")]
+        # hovertool.renderers = []
+        for i in range(len(data["x"])):
+            plot.line(
+                x=data["x"][i],
+                y=data["y"][i],
+                color=data["color"][i],
+                legend_label=data["name"][i],
+                line_width=4,
+            )
+            band = Band(
+                base="x",
+                lower="lower",
+                upper="upper",
+                fill_alpha=0.2,
+                fill_color=data["color"][i],
+                source=ColumnDataSource(
+                    {
+                        "x": data["x"][i],
+                        "lower": data["lower"][i],
+                        "upper": data["upper"][i],
+                    }
+                ),
+            )
+            plot.circle(
+                x=data["x"][i], y=data["y"][i], color=data["color"][i], size=6
+            )
+            plot.add_layout(band)
+
+            # hovertool.renderers.append(r)
 
     metric_input.on_change("value", update)
     center_style_select.on_change("value", update)
     ci_style_select.on_change("value", update)
+    refresh_button.on_event("button_click", lambda _: update(None, None, None))
+
     update(None, None, None)
 
     curdoc().add_root(
-        column(metric_input, center_style_select, ci_style_select, plot)
+        column(
+            row(
+                metric_input,
+                center_style_select,
+                ci_style_select,
+                Spacer(sizing_mode="stretch_width"),
+                column(
+                    Spacer(sizing_mode="stretch_height"),
+                    refresh_button,
+                    sizing_mode="stretch_height",
+                ),
+                sizing_mode="stretch_width",
+            ),
+            plot,
+        )
     )
 
 
