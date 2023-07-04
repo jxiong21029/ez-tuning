@@ -144,10 +144,6 @@ def main():
             for item in plot.center
             if not isinstance(item, Band) and not isinstance(item, Legend)
         ]
-        # hovertool: HoverTool = plot.select({"type": HoverTool})
-        # hovertool.mode = "vline"
-        # hovertool.tooltips = [("value", "@y{custom}")]
-        # hovertool.renderers = []
         for i in range(len(data["x"])):
             plot.line(
                 x=data["x"][i],
@@ -174,8 +170,6 @@ def main():
                 x=data["x"][i], y=data["y"][i], color=data["color"][i], size=6
             )
             plot.add_layout(band)
-
-            # hovertool.renderers.append(r)
 
     metric_input.on_change("value", update)
     center_style_select.on_change("value", update)

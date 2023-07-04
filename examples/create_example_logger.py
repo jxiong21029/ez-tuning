@@ -12,4 +12,4 @@ for i in range(100):
     )
     logger.step()
 
-logger.save("logger.npz")
+logger.save("examples/example.logger")

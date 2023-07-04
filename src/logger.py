@@ -87,13 +87,14 @@ class Logger:
         self.buffer.clear()
 
     def save(self, filename):
-        np.savez_compressed(
-            filename,
-            **{
-                k: np.asarray(v, dtype=np.float32)
-                for k, v in self.data.items()
-            },
-        )
+        with open(filename, "wb") as f:
+            np.savez_compressed(
+                f,
+                **{
+                    k: np.asarray(v, dtype=np.float32)
+                    for k, v in self.data.items()
+                },
+            )
 
     @staticmethod
     def load(filename):
